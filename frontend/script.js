@@ -85,4 +85,3 @@ if (els.goBtn) els.goBtn.addEventListener('click', generate);
 // optional: ping health on load
 healthCheck();
 
-}
