@@ -8,10 +8,11 @@ app = FastAPI()
 # Allow your deployed frontend to connect
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://ai-video-generator-2.vercel.app"],
+    allow_origin_regex=r"https://.*vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
 )
 
 class VideoRequest(BaseModel):
