@@ -3,17 +3,16 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
-import os
-import httpx
+import os, time, httpx
 
 app = FastAPI()
 
-# --- CORS: allow your deployed Vercel domains ---
+# --- CORS: allow your Vercel domains ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://ai-video-generator-2.vercel.app",
-        # optional: your Vercel preview domain (copy/paste exactly as shown by Vercel)
+        # optional: your preview deploys on vercel
         "https://ai-video-generator-2-git-main-jens-projects-0278bd39.vercel.app",
     ],
     allow_credentials=True,
@@ -21,15 +20,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -------- Provider adapter (fill with your real provider) --------
-PROVIDER = os.getenv("VIDEO_PROVIDER", "demo")         # "demo" by default
-PROVIDER_API_KEY = os.getenv("VIDEO_API_KEY", "")      # set in Render if needed
-PROVIDER_BASE_URL = os.getenv("VIDEO_API_BASE", "")    # set in Render if needed
+# --- Provider settings via ENV ---
+PROVIDER       = os.getenv("VIDEO_PROVIDER", "sora")  # "sora" by default
+PROVIDER_BASE  = os.getenv("VIDEO_API_BASE", "").rstrip("/")
+PROVIDER_KEY   = os.getenv("VIDEO_API_KEY", "")
 
+# Basic “shape” so you can adapt easily if your provider differs:
+# Create job:   POST  {PROVIDER_BASE}/v1/videos
+#   -> payload: {prompt, model?, duration?, aspect?}
+#   -> returns: {"id": "...", "status": "...", ...}
+# Get status:   GET   {PROVIDER_BASE}/v1/videos/{id}
+#   -> returns: {"status": "succeeded|running|queued|failed", "assets": [{"url": "...", "type": "video"}]} or {"output":{"url": "..."}}
+
+# --- Request schema from your frontend ---
 class VideoRequest(BaseModel):
     prompt: str
     model: str | None = None
-    duration: int | None = None
+    duration: int | None = 5
     aspect: str | None = "16:9"
 
 @app.get("/", response_class=HTMLResponse)
@@ -40,75 +47,117 @@ def home():
 
 @app.get("/healthz")
 def health_check():
-    return {"status": "ok"}
+    ok = bool(PROVIDER_BASE and PROVIDER_KEY)
+    return {"status": "ok" if ok else "missing_env", "provider": PROVIDER}
+
+def aspect_to_size(aspect: str | None) -> str:
+    """
+    Map aspect to the provider's size field if needed.
+    Adjust to match your provider's accepted sizes.
+    """
+    if not aspect:
+        return "1280x720"
+    a = aspect.replace(" ", "")
+    return {
+        "16:9": "1280x720",
+        "9:16": "720x1280",
+        "1:1":  "1024x1024",
+    }.get(a, "1280x720")
 
 @app.post("/generate")
 async def generate_video(data: VideoRequest):
-    """
-    Returns either:
-    - demo: a sample video URL (so your app works now)
-    - provider: placeholder logic for a real provider (wire later)
-    """
-    # DEMO mode: return a known-public sample video so the frontend can play
-    if PROVIDER.lower() in ("", "demo", "sample"):
-        return {
-            "status": "queued",
-            "message": f"Video generation started for: {data.prompt}",
-            "video_url": "https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4",
-            "echo": data.model_dump(),
-        }
-
-    # REAL PROVIDER (skeleton): adapt to your provider’s API when you’re ready.
-    # Example pattern: POST job -> get job_id -> poll until 'succeeded' -> return asset link
-    if not PROVIDER_BASE_URL:
+    if not (PROVIDER_BASE and PROVIDER_KEY):
         return JSONResponse(
+            {"status": "error", "message": "Server missing VIDEO_API_BASE or VIDEO_API_KEY"},
             status_code=500,
-            content={"status": "error", "message": "Provider base URL not configured"},
         )
 
-    headers = {}
-    if PROVIDER_API_KEY:
-        headers["Authorization"] = f"Bearer {PROVIDER_API_KEY}"
+    # ---- 1) Create the job at the provider ----
+    create_url = f"{PROVIDER_BASE}/v1/videos"
 
+    # ✳️ Adjust this mapping to your provider’s exact field names if needed
     payload = {
         "prompt": data.prompt,
         "model": data.model or "cinematic",
         "duration": data.duration or 5,
-        "aspect": data.aspect or "16:9",
+        "size": aspect_to_size(data.aspect),     # some APIs use "size" or "resolution"
+        # add any other provider-specific options here
+    }
+
+    headers = {
+        "Authorization": f"Bearer {PROVIDER_KEY}",
+        "Content-Type": "application/json",
     }
 
     async with httpx.AsyncClient(timeout=60) as client:
-        # 1) create a job
-        create = await client.post(f"{PROVIDER_BASE_URL}/v1/videos", json=payload, headers=headers)
-        if create.status_code >= 400:
-            return JSONResponse(status_code=create.status_code, content=create.json())
+        try:
+            create = await client.post(create_url, json=payload, headers=headers)
+        except Exception as e:
+            return {"status": "error", "message": f"Create request failed: {e}"}
 
-        job = create.json()
-        job_id = job.get("id") or job.get("job_id") or job.get("data", {}).get("id")
-        if not job_id:
-            return JSONResponse(status_code=500, content={"status": "error", "message": "No job id from provider"})
+    if create.status_code >= 300:
+        return {
+            "status": "error",
+            "message": f"Create failed: {create.status_code}",
+            "detail": create.text,
+        }
 
-        # 2) (simplified) poll a few times for demo purposes
-        for _ in range(15):
-            status_res = await client.get(f"{PROVIDER_BASE_URL}/v1/videos/{job_id}", headers=headers)
-            if status_res.status_code >= 400:
-                return JSONResponse(status_code=status_res.status_code, content=status_res.json())
-            sjson = status_res.json()
-            st = sjson.get("status")
-            if st in ("succeeded", "completed"):
-                # adapt path to your provider’s response
-                vid = (
-                    sjson.get("assets", {}).get("video")
-                    or sjson.get("video_url")
-                    or sjson.get("result", {}).get("url")
-                )
-                if vid:
-                    return {"status": "succeeded", "video_url": vid, "provider": PROVIDER, "echo": payload}
-                return JSONResponse(status_code=500, content={"status": "error", "message": "No video URL in success response"})
-            elif st in ("failed", "error"):
-                return JSONResponse(status_code=500, content={"status": "failed", "detail": sjson})
-            # brief wait between polls
-            import asyncio; await asyncio.sleep(2)
+    job = create.json()
+    job_id = job.get("id") or job.get("job_id")
 
-    return JSONResponse(status_code=504, content={"status": "timeout", "message": "Provider did not finish in time"})
+    # If the provider returns the URL immediately, surface it:
+    video_url = (
+        job.get("video_url")
+        or (job.get("output") or {}).get("url")
+        or (next((a.get("url") for a in job.get("assets", []) if a.get("url")), None))
+    )
+    if video_url:
+        return {"status": "succeeded", "video_url": video_url, "echo": data.model_dump()}
+
+    if not job_id:
+        return {"status": "queued", "message": "Job created but no id in response", "raw": job}
+
+    # ---- 2) Poll for result (short window; frontend can display queued state) ----
+    status_url = f"{PROVIDER_BASE}/v1/videos/{job_id}"
+    deadline = time.time() + 75  # ~75 seconds poll window
+    last_status = None
+
+    while time.time() < deadline:
+        await asyncio_sleep(3.0)
+        async with httpx.AsyncClient(timeout=30) as client:
+            try:
+                status_res = await client.get(status_url, headers=headers)
+            except Exception as e:
+                last_status = f"poll_error: {e}"
+                continue
+
+        if status_res.status_code >= 300:
+            last_status = f"poll_http_{status_res.status_code}"
+            continue
+
+        s = status_res.json()
+        state = s.get("status") or s.get("state")
+        # Locate a URL in common shapes
+        video_url = (
+            s.get("video_url")
+            or (s.get("output") or {}).get("url")
+            or (next((a.get("url") for a in s.get("assets", []) if a.get("url")), None))
+        )
+
+        if state in ("succeeded", "completed") and video_url:
+            return {"status": "succeeded", "video_url": video_url, "echo": data.model_dump()}
+        if state in ("failed", "canceled", "error"):
+            return {"status": "error", "message": f"Job {state}", "raw": s}
+
+        # still running / queued
+        last_status = state or "running"
+
+    # Timed out waiting—let the frontend keep showing queued state if you want
+    return {"status": "queued", "message": f"Still running ({last_status})", "id": job_id, "echo": data.model_dump()}
+
+
+# tiny async sleep helper (so we can use it without bringing in asyncio everywhere)
+import asyncio
+async def asyncio_sleep(sec: float):
+    await asyncio.sleep(sec)
 
