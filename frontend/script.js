@@ -1,90 +1,78 @@
-// --- CONFIG ---
+// ---- CONFIG ----
 // Your Render backend:
 const API_BASE = 'https://ai-video-generator-2-wmts.onrender.com';
 
+// ---- ELEMENTS ----
 const els = {
-  prompt:  document.getElementById('prompt'),
-  model:   document.getElementById('model'),
-  duration:document.getElementById('duration'),
-  aspect:  document.getElementById('aspect'),
-  goBtn: document.getElementById('btn'),
-  video:   document.getElementById('preview'),
-  log:     document.getElementById('log')
+  prompt: document.getElementById('prompt'),
+  model: document.getElementById('model'),
+  duration: document.getElementById('duration'),
+  aspect: document.getElementById('aspect'),
+  goBtn: document.getElementById('goBtn'),
+  video: document.getElementById('video'),
+  status: document.getElementById('status'),
 };
 
+// ---- LOGGING ----
 function log(msg) {
-  if (!els.log) return;
-  els.log.textContent += (typeof msg === 'string' ? msg : JSON.stringify(msg, null, 2)) + '\n';
-  els.log.scrollTop = els.log.scrollHeight;
+  console.log(msg);
+  if (els.status) {
+    els.status.textContent = typeof msg === 'string' ? msg : JSON.stringify(msg, null, 2);
+  }
 }
 
+// ---- HEALTH CHECK ----
 async function healthCheck() {
   try {
-    const r = await fetch(`${API_BASE}/healthz`);
-    const j = await r.json();
-    log('Health: ' + JSON.stringify(j));
-  } catch (e) {
-    log('Health check failed: ' + e.message);
+    const res = await fetch(`${API_BASE}/healthz`);
+    const json = await res.json();
+    log(`✅ Health OK: ${JSON.stringify(json)}`);
+  } catch (err) {
+    log(`❌ Health check failed: ${err.message}`);
   }
 }
 
+// ---- GENERATE VIDEO ----
 async function generate() {
   const payload = {
-    prompt:  (els.prompt?.value || '').trim(),
-    model:   els.model?.value || 'cinematic',
-    duration: Number(els.duration?.value || 5),
-    aspect:  els.aspect?.value || '16:9'
+    prompt: els.prompt?.value || '',
+    model: els.model?.value || 'cinematic',
+    duration: Number(els.duration?.value) || 5,
+    aspect: els.aspect?.value || '16:9',
   };
 
-  if (!payload.prompt) {
-    alert('Please write a prompt first 🙂');
-    return;
-  }
-
-  els.goBtn?.setAttribute('disabled', 'true');
-  els.goBtn && (els.goBtn.textContent = 'Working…');
-
-  log('Sending /generate payload:');
-  log(payload);
-
+  log('Generating video...');
   try {
-    const r = await fetch(`${API_BASE}/generate`, {
+    const res = await fetch(`${API_BASE}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
 
-    const data = await r.json().catch(() => ({}));
-    log('Response:');
-    log(data);
+    const json = await res.json();
+    log(json);
 
-    if (!r.ok) {
-      alert(`Server error: ${r.status} ${r.statusText}`);
-      return;
+    if (json.video_url && els.video) {
+      els.video.src = json.video_url;
+      els.video.classList.remove('hidden');
+      els.video.load();
     }
-
-    // If your backend later returns a video URL, set it here:
-    // if (data.video_url && els.video) {
-    //   els.video.src = data.video_url;
-    //   els.video.load();
-    //   els.video.play().catch(() => {});
-    // } else {
-    //   log('No video_url yet (placeholder response).');
-    // }
-  } catch (e) {
-    log('Request failed: ' + e.message);
-    alert('Could not reach the backend. Check CORS/URL and try again.');
-  } finally {
-    els.goBtn?.removeAttribute('disabled');
-    els.goBtn && (els.goBtn.textContent = 'Generate Video');
+  } catch (err) {
+    log(`⚠️ Error: ${err.message}`);
   }
 }
 
-// Wait until the page is fully loaded, then wire up everything
+// ---- WIRE BUTTON ----
 document.addEventListener('DOMContentLoaded', () => {
-  console.log('JS loaded, wiring button…');
-  if (els.goBtn) els.goBtn.addEventListener('click', generate);
-  healthCheck && healthCheck();
-});
+  console.log('JS loaded, wiring button...');
+  if (els.goBtn) {
+    els.goBtn.addEventListener('click', generate);
+    console.log('Button wired!');
+  } else {
+    console.error('⚠️ goBtn not found in DOM!');
+  }
 
+  // Test backend connection when page loads
+  healthCheck();
+});
 
