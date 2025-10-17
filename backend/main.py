@@ -35,8 +35,10 @@ def generate_video(data: VideoRequest):
     print(f"Generating video with prompt: {data.prompt}")
     # Just return a fake response for now so frontend resolves it
     return {
-        "status": "queued",
-        "message": f"Video generation started for: {data.prompt}",
-        "video_url": None,
-        "echo": data.dict()
+    "status": "queued",
+    "message": f"Video generation started for: {data.prompt}",
+    "video_url": "https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4",
+    "echo": data.model_dump(),
+}
+
     }
