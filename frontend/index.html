@@ -1,33 +1,45 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AI Video Generator</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background-color: #0b0f16;
-      color: white;
-      text-align: center;
-      padding: 50px;
-    }
-    button {
-      background-color: #4CAF50;
-      color: white;
-      padding: 10px 20px;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 16px;
-    }
-    button:hover {
-      background-color: #45a049;
-    }
-  </style>
+  <link rel="icon" href="data:," /> <!-- avoid favicon 404 -->
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <h1>AI Video Generator</h1>
-  <p>Skriv inn en prompt, og la AI-en lage film! 🎬</p>
-  <button onclick="alert('AI-generering kommer snart!')">Generate Video</button>
+  <div class="wrap">
+    <h1>AI Video Generator</h1>
+    <p>Skriv inn en prompt, og la AI-en lage film! 🎬</p>
+
+    <label for="prompt">Prompt</label>
+    <textarea id="prompt" rows="4" placeholder="me chasing a cow like a cowboy at sunset"></textarea>
+
+    <div class="row">
+      <label for="model">Model</label>
+      <select id="model">
+        <option value="cinematic" selected>Cinematic</option>
+        <option value="action">Action</option>
+        <option value="fantasy">Fantasy</option>
+      </select>
+
+      <label for="duration">Duration (s)</label>
+      <input id="duration" type="number" min="3" max="15" value="5" />
+
+      <label for="aspect">Aspect</label>
+      <select id="aspect">
+        <option value="16:9" selected>16:9</option>
+        <option value="9:16">9:16</option>
+        <option value="1:1">1:1</option>
+      </select>
+    </div>
+
+    <button id="btn">Generate Video</button>
+
+    <div id="status" class="status">Idle</div>
+    <video id="video" controls playsinline class="hidden"></video>
+  </div>
+
+  <script src="script.js"></script>
 </body>
 </html>
