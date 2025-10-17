@@ -1,75 +1,88 @@
-// Set your backend API. You can override this via DevTools with:
-// localStorage.setItem('API_BASE','https://YOUR-RENDER.onrender.com');
-const API_BASE =
-  localStorage.getItem('API_BASE') ||
-  'https://ai-video-generator-2-wmts.onrender.com';
+// --- CONFIG ---
+// Your Render backend:
+const API_BASE = 'https://ai-video-generator-2-wmts.onrender.com';
 
-const $ = (id) => document.getElementById(id);
-const statusEl = $('status');
-const videoEl = $('video');
-const btn = $('btn');
+const els = {
+  prompt:  document.getElementById('prompt'),
+  model:   document.getElementById('model'),
+  duration:document.getElementById('duration'),
+  aspect:  document.getElementById('aspect'),
+  goBtn:   document.getElementById('goBtn') || document.querySelector('button[type="button"], button'),
+  video:   document.getElementById('preview'),
+  log:     document.getElementById('log')
+};
 
-function setStatus(text) {
-  statusEl.textContent = text;
+function log(msg) {
+  if (!els.log) return;
+  els.log.textContent += (typeof msg === 'string' ? msg : JSON.stringify(msg, null, 2)) + '\n';
+  els.log.scrollTop = els.log.scrollHeight;
 }
 
-btn.addEventListener('click', async () => {
+async function healthCheck() {
+  try {
+    const r = await fetch(`${API_BASE}/healthz`);
+    const j = await r.json();
+    log('Health: ' + JSON.stringify(j));
+  } catch (e) {
+    log('Health check failed: ' + e.message);
+  }
+}
+
+async function generate() {
   const payload = {
-    prompt: $('prompt').value.trim(),
-    model: $('model').value,
-    duration_seconds: parseInt($('duration').value || '5', 10),
-    aspect_ratio: $('aspect').value,
+    prompt:  (els.prompt?.value || '').trim(),
+    model:   els.model?.value || 'cinematic',
+    duration: Number(els.duration?.value || 5),
+    aspect:  els.aspect?.value || '16:9'
   };
 
   if (!payload.prompt) {
-    alert('Skriv inn en prompt først 🙏');
+    alert('Please write a prompt first 🙂');
     return;
   }
 
-  // reset UI
-  setStatus('Sender forespørsel…');
-  videoEl.classList.add('hidden');
-  videoEl.src = '';
+  els.goBtn?.setAttribute('disabled', 'true');
+  els.goBtn && (els.goBtn.textContent = 'Working…');
+
+  log('Sending /generate payload:');
+  log(payload);
 
   try {
-    const res = await fetch(`${API_BASE}/generate`, {
+    const r = await fetch(`${API_BASE}/generate`, {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Request failed');
 
-    // Poll status until done
-    await pollStatus(data.job_id);
-  } catch (err) {
-    console.error(err);
-    setStatus('Feil: ' + (err?.message || 'Ukjent feil'));
-  }
-});
+    const data = await r.json().catch(() => ({}));
+    log('Response:');
+    log(data);
 
-async function pollStatus(jobId) {
-  setStatus('Køet…');
-  for (let i = 0; i < 60; i++) {
-    const res = await fetch(`${API_BASE}/status/${jobId}`);
-    const data = await res.json();
-
-    if (data.status === 'succeeded') {
-      setStatus('Ferdig! ▶️');
-      if (data.video_url) {
-        videoEl.src = data.video_url;
-        videoEl.classList.remove('hidden');
-        try { await videoEl.play(); } catch (_) {}
-      }
-      return;
-    }
-    if (data.status === 'failed') {
-      setStatus('Feilet: ' + (data.error || 'Ukjent feil'));
+    if (!r.ok) {
+      alert(`Server error: ${r.status} ${r.statusText}`);
       return;
     }
 
-    setStatus(`Status: ${data.status} …`);
-    await new Promise((r) => setTimeout(r, 1000));
+    // If your backend later returns a video URL, set it here:
+    // if (data.video_url && els.video) {
+    //   els.video.src = data.video_url;
+    //   els.video.load();
+    //   els.video.play().catch(() => {});
+    // } else {
+    //   log('No video_url yet (placeholder response).');
+    // }
+  } catch (e) {
+    log('Request failed: ' + e.message);
+    alert('Could not reach the backend. Check CORS/URL and try again.');
+  } finally {
+    els.goBtn?.removeAttribute('disabled');
+    els.goBtn && (els.goBtn.textContent = 'Generate Video');
   }
-  setStatus('Tidsavbrudd etter 60 sek.');
+}
+
+// Wire up
+if (els.goBtn) els.goBtn.addEventListener('click', generate);
+// optional: ping health on load
+healthCheck();
+
 }
