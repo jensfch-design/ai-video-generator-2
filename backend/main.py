@@ -1,10 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import subprocess
+from fastapi.responses import HTMLResponse
 
 app = FastAPI()
 
+# Allow your deployed frontend to connect
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["https://ai-video-generator-2.vercel.app"],
@@ -15,9 +16,15 @@ app.add_middleware(
 
 class VideoRequest(BaseModel):
     prompt: str
-    model: str
-    duration: int
-    aspect: str
+    model: str | None = None
+    duration: int | None = None
+    aspect: str | None = None
+
+@app.get("/", response_class=HTMLResponse)
+def home():
+    return """<h1>AI Video Generator API</h1>
+<p>✅ Server is running</p>
+<p>Health check: <a href="/healthz">/healthz</a></p>"""
 
 @app.get("/healthz")
 def health_check():
@@ -25,8 +32,11 @@ def health_check():
 
 @app.post("/generate")
 def generate_video(data: VideoRequest):
-    try:
-        print(f"Generating video with prompt: {data.prompt}")
-        return {"status": "success", "message": "Video generation started!"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
+    print(f"Generating video with prompt: {data.prompt}")
+    # Just return a fake response for now so frontend resolves it
+    return {
+        "status": "queued",
+        "message": f"Video generation started for: {data.prompt}",
+        "video_url": None,
+        "echo": data.dict()
+    }
