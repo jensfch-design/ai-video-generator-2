@@ -7,7 +7,7 @@ const els = {
   model:   document.getElementById('model'),
   duration:document.getElementById('duration'),
   aspect:  document.getElementById('aspect'),
-  goBtn:   document.getElementById('goBtn') || document.querySelector('button[type="button"], button'),
+  goBtn: document.getElementById('btn'),
   video:   document.getElementById('preview'),
   log:     document.getElementById('log')
 };
@@ -80,8 +80,11 @@ async function generate() {
   }
 }
 
-// Wire up
-if (els.goBtn) els.goBtn.addEventListener('click', generate);
-// optional: ping health on load
-healthCheck();
+// Wait until the page is fully loaded, then wire up everything
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('JS loaded, wiring button…');
+  if (els.goBtn) els.goBtn.addEventListener('click', generate);
+  healthCheck && healthCheck();
+});
+
 
